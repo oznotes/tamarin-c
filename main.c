@@ -9,13 +9,12 @@
 */
 
 // Pico includes
-#include "pico/stdlib.h"
 #include "pico/bootrom.h"
 #include "hardware/pio.h"
 #include "hardware/i2c.h"
 #include "hardware/uart.h"
 #include "hardware/watchdog.h"
-
+#include <stdio.h>
 // Tiny USB
 #include "bsp/board.h"
 #include "tusb.h"
@@ -29,6 +28,9 @@
 #include "uart_rx.pio.h"
 
 #include <stdlib.h>
+
+
+#define LED_PIN 25
 
 enum CC_POLARITY polarity = CC_POLARITY_CC1;
 
@@ -120,9 +122,9 @@ char *get_action_description(int action_id) {
     return "";
 }
 
-static void vdm_send_msg(tamarin_usb_pd *usb_pd, uint32_t *vdm, int nr_u32)
+static void vdm_send_msg(tamarin_usb_pd *T_usb_pd, uint32_t *vdm, int nr_u32)
 {
-    if(usb_pd->log_messages) {
+    if(T_usb_pd->log_messages) {
         uprintf("Sending (%d): ", nr_u32);
         for (int i = 0; i < nr_u32; i++)
         {
@@ -136,7 +138,7 @@ static void vdm_send_msg(tamarin_usb_pd *usb_pd, uint32_t *vdm, int nr_u32)
 }
 
 const bool ACTION_EXIT = 1;
-void vdm_apple_perform_action(tamarin_usb_pd *usb_pd, bool exit, bool persist, bool exit_conflicting, enum PIN_MAPPING mapping, uint16_t action_id, uint32_t arguments[], size_t arguments_len)
+void vdm_apple_perform_action(tamarin_usb_pd *T_usb_pd, bool exit, bool persist, bool exit_conflicting, enum PIN_MAPPING mapping, uint16_t action_id, uint32_t arguments[], size_t arguments_len)
 {
     uint8_t line_config = mapping;
     uint32_t action =
@@ -160,7 +162,7 @@ void vdm_apple_perform_action(tamarin_usb_pd *usb_pd, bool exit, bool persist, b
     {
         vdm[2 + i] = arguments[i];
     }
-    vdm_send_msg(usb_pd, vdm, message_length);
+    vdm_send_msg(T_usb_pd, vdm, message_length);
 }
 
 /* This function does not handle hard-resets etc., it's very naive. */
@@ -303,13 +305,12 @@ void vdm_debug_usb(tamarin_configuration *config)
     uprintf(">VDM Debug USB (0x4606)\r\n");
 }
 
-
-
 void vdm_send_uart(tamarin_configuration *config)
 {
     vdm_apple_perform_action(config->usb_pd, 0, 0, 0, config->uart_pins, 0x306, NULL, 0);
     uprintf(">VDM serial on %s\r\n", MAPPING_TO_STRING[config->uart_pins]);
 }
+
 void vdm_send_swd(tamarin_configuration *config)
 {
     vdm_apple_perform_action(config->usb_pd, 0, 0, 0, config->swd_pins, 0x206, NULL, 0);
@@ -357,7 +358,6 @@ void vdm_send_0x0410(tamarin_configuration *config)
     vdm_apple_perform_action(config->usb_pd, 0, 0, 1, PIN_MAPPING_SBU, 0x0410, NULL, 0);
     uprintf(">VDM (SBU) 0x0410\r\n");
 }
-
 
 // Unknown on iPhone 15 Pro
 void vdm_send_0x0607(tamarin_configuration *config)
@@ -408,7 +408,6 @@ void vdm_get_action_list(tamarin_usb_pd *usb_pd)
         }
     }
 }
-
 
 enum MENU_STATES {
     MENU_STATE_MAIN,
@@ -508,6 +507,7 @@ void cmd_map_bus2(tamarin_configuration *config) {
 void cmd_map_weird_uart(tamarin_configuration *config) {
     vdm_send_weird_uart(config);
 }
+
 void cmd_map_weird_uart2(tamarin_configuration *config) {
     vdm_send_weird_uart2(config);
 }
@@ -519,7 +519,6 @@ void cmd_map_410(tamarin_configuration *config) {
 
 void cmd_dfu(tamarin_configuration *config) {
     vdm_dfu_hold(config);
-
 }
 
 void cmd_fetch_actions(tamarin_configuration *config) {
@@ -587,6 +586,7 @@ void print_available_mappings() {
 }
 
 bool probe_initialized = false;
+
 void handle_menu() {
     if(tud_cdc_n_available(ITF_CONSOLE)) {
         int c = tud_cdc_n_read_char(ITF_CONSOLE);
@@ -658,10 +658,10 @@ int main()
     board_init();
     tusb_init();
 
-
     // Set-up VBUS control
     gpio_init(PIN_VBUS_EN);
     gpio_set_dir(PIN_VBUS_EN, true);
+
 
     // Set-up level-shifter power
     // (When the supply is off they should be in low-z)
@@ -673,15 +673,17 @@ int main()
     gpio_init(25);
     gpio_set_dir(25, GPIO_OUT);
 
+
+    gpio_put(25, 1);
+    sleep_ms(50);
+
     // Don't do anything until we ahve a console connection
     while(!tud_cdc_n_connected(ITF_CONSOLE)) {
         tud_task();
     }
 
-    gpio_put(25, 1);
-    sleep_ms(50);
-    gpio_put(25, 0);
-    sleep_ms(50);
+
+
     print_menu();
 
     // Initialize USB PD controller
